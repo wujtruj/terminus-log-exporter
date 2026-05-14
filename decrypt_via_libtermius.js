@@ -21,7 +21,7 @@
 //   })
 // Construction is what kicks off the async stream; data arrives via callbacks.
 'use strict';
-const SCRIPT_VERSION = '2026-05-14.v9';
+const SCRIPT_VERSION = '2026-05-14.v10';
 console.log(`decrypt_via_libtermius.js ${SCRIPT_VERSION}`);
 const fs = require('fs');
 const path = require('path');
@@ -40,6 +40,8 @@ function parseArgs(argv) {
             out['logs-dir'].push(expandEnv(argv[++i]));
         } else if (a === '--asar' || a === '--out') {
             out[a.replace(/^--/, '')] = expandEnv(argv[++i]);
+        } else if (a === '--keep-blank-lines') {
+            out['keep-blank-lines'] = true;
         } else {
             out.positional.push(expandEnv(a));
         }
@@ -50,7 +52,7 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 const keysJsonPath = args.positional[0];
 if (!keysJsonPath) {
-    console.error('usage: node decrypt_via_libtermius.js <keys.json> [--asar <dir>] [--logs-dir <dir>] [--out <dir>]');
+    console.error('usage: node decrypt_via_libtermius.js <keys.json> [--asar <dir>] [--logs-dir <dir>] [--out <dir>] [--keep-blank-lines]');
     process.exit(2);
 }
 if (!fs.existsSync(keysJsonPath)) {
@@ -189,7 +191,10 @@ function decryptOne(filename, key) {
         process.stderr.write(`decrypting ${s.filename} (from ${path.dirname(inFile)}) ...\n`);
         try {
             const plaintext = await decryptOne(inFile, key);
-            const rendered = Buffer.from(renderTerminalStream(plaintext), 'utf8');
+            const rendered = Buffer.from(
+                renderTerminalStream(plaintext, { keepBlankLines: !!args['keep-blank-lines'] }),
+                'utf8'
+            );
             fs.writeFileSync(outFile, rendered);
             console.log(`[ok] ${s.filename} -> ${outFile} (${rendered.length} bytes)`);
             ok++;
