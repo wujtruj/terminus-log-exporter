@@ -11,7 +11,8 @@
 # from the Windows machine — every other secret lives in the AppData you
 # already copied.
 
-Add-Type -Namespace Win32 -Name Credman -MemberDefinition @"
+if (-not ([System.Management.Automation.PSTypeName]'Win32.Credman').Type) {
+    Add-Type -Namespace Win32 -Name Credman -MemberDefinition @"
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
 public struct CREDENTIAL {
     public uint Flags;
@@ -32,6 +33,7 @@ public static extern bool CredRead(string target, uint type, uint reserved, out 
 [DllImport("advapi32.dll")]
 public static extern void CredFree(IntPtr ptr);
 "@
+}
 
 function Get-TermiusLocalKey {
     param([string]$Target)
