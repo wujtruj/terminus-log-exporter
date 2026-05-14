@@ -1,4 +1,4 @@
-# Wrapper around dump_local_key.ps1 (repo root) that emits ONLY the bare
+# Wrapper around dump_local_key.ps1 (same directory) that emits ONLY the bare
 # base64 localKey to stdout. The original script uses Write-Host (information
 # stream), which $key = .\dump_local_key.ps1 cannot capture on PowerShell 5.1
 # — the Windows default. This wrapper captures all streams via *>&1 and
@@ -10,9 +10,8 @@
 
 $ErrorActionPreference = 'Stop'
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRoot  = Split-Path -Parent $ScriptDir
-$DumpScript = Join-Path $RepoRoot 'dump_local_key.ps1'
+$ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
+$DumpScript = Join-Path $ScriptDir 'dump_local_key.ps1'
 
 if (-not (Test-Path -LiteralPath $DumpScript)) {
     Write-Error "dump_local_key.ps1 not found at: $DumpScript"
