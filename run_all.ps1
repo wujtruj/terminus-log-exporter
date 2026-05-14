@@ -1,4 +1,4 @@
-# Windows-native end-to-end runner for terminus-log-converter.
+# End-to-end runner for terminus-log-exporter.
 #
 # Pipeline:
 #   1. Stop Termius (graceful, then force).
@@ -11,9 +11,9 @@
 #   7. Delete the snapshot on success.
 #
 # Usage:
-#   .\windows\run_all.ps1
-#   .\windows\run_all.ps1 -DataDir "$env:APPDATA\Termius" -Out decrypted
-#   .\windows\run_all.ps1 -TermiusExe "<full path to Termius.exe>"
+#   .\run_all.ps1
+#   .\run_all.ps1 -DataDir "$env:APPDATA\Termius" -Out decrypted
+#   .\run_all.ps1 -TermiusExe "<full path to Termius.exe>"
 
 [CmdletBinding()]
 param(
@@ -26,11 +26,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$SCRIPT_VERSION = '2026-05-13.v1'
+$SCRIPT_VERSION = '2026-05-14.v2'
 Write-Host "run_all.ps1 $SCRIPT_VERSION"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRoot  = Split-Path -Parent $ScriptDir
 
 if (-not $DataDir) { $DataDir = Join-Path $env:APPDATA 'Termius' }
 if (-not $TermiusExe) { $TermiusExe = Join-Path $env:LOCALAPPDATA 'Programs\Termius\Termius.exe' }
@@ -52,7 +51,7 @@ if (-not $nodeExe) {
 
 $ExtractJs = Join-Path $ScriptDir 'extract_keys.js'
 $GetKey    = Join-Path $ScriptDir 'get_local_key.ps1'
-$RunHelper = Join-Path $RepoRoot  'run_helper.ps1'
+$RunHelper = Join-Path $ScriptDir 'run_helper.ps1'
 foreach ($p in @($ExtractJs, $GetKey, $RunHelper)) {
     if (-not (Test-Path -LiteralPath $p)) {
         Write-Error "missing required script: $p"
@@ -68,7 +67,7 @@ if (-not (Test-Path -LiteralPath $NodeModules)) {
         Write-Host "Installing Node deps (one-time)..."
         & npm install --no-audit --no-fund
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "npm install failed. If the jumpbox has no internet, vendor windows\node_modules\ from another machine."
+            Write-Error "npm install failed. If the jumpbox has no internet, vendor node_modules\ from another machine."
             exit 2
         }
     } finally {
@@ -150,7 +149,7 @@ if (-not $key -or $LASTEXITCODE -ne 0) {
 }
 
 # --- Step 5: Extract keys ---
-$OutAbs = if ([System.IO.Path]::IsPathRooted($Out)) { $Out } else { Join-Path $RepoRoot $Out }
+$OutAbs = if ([System.IO.Path]::IsPathRooted($Out)) { $Out } else { Join-Path $ScriptDir $Out }
 New-Item -ItemType Directory -Force -Path $OutAbs | Out-Null
 Write-Host "Extracting keys to $OutAbs\keys.json ..."
 $env:TERMIUS_LOCAL_KEY_B64 = $key

@@ -4,12 +4,10 @@
 #
 #   PS C:\> .\dump_local_key.ps1
 #
-# Copy the printed base64 string to the Mac and pass to:
-#   python3 decrypt_termius_logs.py --local-key-b64 <string>
-#
-# The localKey is a 32-byte libsodium secretbox key. Nothing else is needed
-# from the Windows machine — every other secret lives in the AppData you
-# already copied.
+# The localKey is a 32-byte libsodium secretbox key — the master credential
+# used to decrypt Local Storage values and IndexedDB history records.
+# run_all.ps1 invokes this script via get_local_key.ps1 and pipes the
+# resulting base64 into extract_keys.js via TERMIUS_LOCAL_KEY_B64.
 
 if (-not ([System.Management.Automation.PSTypeName]'Win32.Credman').Type) {
     Add-Type -Namespace Win32 -Name Credman -MemberDefinition @"

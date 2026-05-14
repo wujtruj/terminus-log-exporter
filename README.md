@@ -1,15 +1,12 @@
-# terminus-log-converter
+# terminus-log-exporter
 
 Decrypt Termius SSH session logs (`session-logs-v2/<uuid>.log`) into plaintext `.txt`.
 
-Termius has no built-in export. Logs are end-to-end encrypted with libsodium; this repo reverses the local crypto chain so logs can be recovered from a copied Windows AppData directory.
+Termius has no built-in export. Logs are end-to-end encrypted with libsodium; this repo reverses the local crypto chain so logs can be recovered on the Windows jumpbox where Termius is installed.
 
-There are two ways to run this:
+Everything runs on Windows — no Mac, no Python. One command: `.\run_all.ps1`.
 
-- **Windows-only (recommended).** Everything runs on the Windows jumpbox where Termius is installed. See [`windows/README.md`](windows/README.md) — single command: `.\windows\run_all.ps1`. No Mac, no Python.
-- **macOS Python pipeline (alternative).** Copy Termius's AppData to a Mac, run the Python tool there, ship `keys.json` back to Windows for the libtermius stage. Documented below — kept fully functional as a fallback.
-
-## Pipeline (Windows-only, recommended)
+## Pipeline
 
 ```
 Windows jumpbox
@@ -29,80 +26,114 @@ run_all.ps1
        - writes decrypted\<uuid>.txt
 ```
 
-Quick start:
+## Prerequisites
+
+- Termius for Windows installed (any modern version that ships `@termius/libtermius`).
+- Node.js 20+ x64. The official `.zip` works (no admin, no MSI prompts). Extract it anywhere and add the directory to `PATH`, or set it per-session: `$env:PATH = "C:\node-v20\;$env:PATH"`.
+- PowerShell 5.1 (built-in) or PowerShell 7.
+
+If the jumpbox is locked-down (no script execution by default):
 
 ```powershell
-cd <repo>\windows
-npm install                          # one-time, can be vendored for offline use
-cd ..
-.\windows\run_all.ps1
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
-See [`windows/README.md`](windows/README.md) for flags, offline install, and step-by-step manual execution.
+…or invoke each `.ps1` via `powershell -ExecutionPolicy Bypass -File <script>`.
 
-## Pipeline (macOS Python — alternative)
-
-```
-Windows jumpbox                                   Mac (this repo)              Windows jumpbox
-───────────────                                   ───────────────              ───────────────
-dump_local_key.ps1 ──┐                                                  ┌─── run_helper.ps1
-   reads             │                                                  │       loads libtermius
-   "Termius/localKey"│                                                  │       via Termius.exe
-   from Credential   │  (paste 44-char base64)                          │       (ELECTRON_RUN_AS_NODE=1)
-   Manager           ▼                                                  │
-                                                                        │
-                  decrypt_termius_logs.py ─── writes ──► keys.json ─────┤
-                  (Python on Mac)                                       │
-                  - reads Termius/Local Storage                         │
-                  - reads Termius/IndexedDB                             │
-                  - unwraps every credential                            │
-                  - emits per-session secretKey                         │
-                                                                        ▼
-                                                                  decrypt_via_libtermius.js
-                                                                  - loads @termius/libtermius
-                                                                    from app.asar.unpacked
-                                                                  - new terminalOutput.LogReader({
-                                                                      filename, encryptionKey,
-                                                                      onDataReady, onError })
-                                                                  - writes <uuid>.txt
-```
-
-### 1. On the Windows jumpbox
-
-Extract the 32-byte `localKey` from Windows Credential Manager:
+## One-time install
 
 ```powershell
-.\dump_local_key.ps1
+cd <repo>
+npm install
 ```
 
-Output: `localKey (base64): <44-char-string>`. Copy that string.
+Pulls `tweetnacl` and `snappyjs` (pure JS, no native compile).
 
-### 2. On this Mac
-
-Place the copied Termius AppData directory at `./Termius/` (must contain `Local Storage/`, `IndexedDB/`, `session-logs-v2/`). Then:
-
-```bash
-./setup.sh
-source .venv/bin/activate
-python3 decrypt_termius_logs.py --local-key-b64 '<paste 44-char string>'
-```
-
-Output: `decrypted/keys.json` containing every Local Storage credential in plaintext (`apiKey`, `encryptionSalt`, `hmacSalt`, `personalKey`, `privateKey`, `publicKey`) and, for every session in IndexedDB, its filename + per-session 32-byte `secretKey` when still available locally.
-
-### 3. Back on the Windows jumpbox
-
-Copy `decrypt_via_libtermius.js`, `run_helper.ps1`, and `decrypted\keys.json` to the jumpbox. Optionally copy the original Mac-side `Termius/session-logs-v2/` too if some `.log` files are missing from the runtime folder. Then:
+For an **offline jumpbox** (no npm access), vendor `node_modules\` from another machine:
 
 ```powershell
-.\run_helper.ps1 decrypted\keys.json
+# On a machine with internet:
+cd <repo>
+npm install
+Compress-Archive node_modules node_modules.zip
+
+# On the jumpbox:
+Expand-Archive node_modules.zip <repo>\
 ```
 
-Or with multiple log directories (live + Mac-side copy):
+## Run
+
+```powershell
+cd <repo>
+.\run_all.ps1
+```
+
+This does, in order:
+
+1. Stops Termius (graceful close, then `Stop-Process -Force`, then waits for the LevelDB `LOCK` file to be releasable).
+2. Snapshots `%APPDATA%\Termius\Local Storage\leveldb` and `%APPDATA%\Termius\IndexedDB\file__0.indexeddb.leveldb` to a temp dir.
+3. Starts Termius again — your sessions resume after ~1-2 s of downtime.
+4. Reads `localKey` from Windows Credential Manager (`get_local_key.ps1` → `dump_local_key.ps1`).
+5. Runs `extract_keys.js` against the snapshot, writes `decrypted\keys.json`.
+6. Runs `decrypt_via_libtermius.js` under `Termius.exe` (Electron 21 as Node) to decrypt every `session-logs-v2\<uuid>.log` → `decrypted\<uuid>.txt`.
+7. Deletes the temp snapshot.
+
+The `localKey` is passed to Node via the `TERMIUS_LOCAL_KEY_B64` env var, never on the command line, so it does not appear in process listings.
+
+## Options
+
+```powershell
+.\run_all.ps1 `
+    -DataDir "$env:APPDATA\Termius" `
+    -Out decrypted `
+    -TermiusExe "C:\Path\To\Termius.exe" `
+    -StopTimeoutSec 10 `
+    -KeepSnapshot `
+    -SkipRestart
+```
+
+- `-DataDir` — override Termius AppData root. Default: `%APPDATA%\Termius`.
+- `-Out` — output dir (relative paths resolve against repo root). Default: `decrypted`.
+- `-TermiusExe` — override Termius.exe path. Default: `%LOCALAPPDATA%\Programs\Termius\Termius.exe`.
+- `-StopTimeoutSec` — how long to wait for the LevelDB `LOCK` to release.
+- `-KeepSnapshot` — leave the temp snapshot on disk for debugging.
+- `-SkipRestart` — don't restart Termius after snapshotting (handy if you want to keep the DB completely quiescent for repeat runs).
+
+## Manual / step-by-step
+
+If something fails and you want to run pieces individually:
+
+```powershell
+# 1. Get the key:
+$key = .\get_local_key.ps1
+$env:TERMIUS_LOCAL_KEY_B64 = $key
+
+# 2. Snapshot manually (or point straight at %APPDATA%\Termius after closing Termius yourself):
+$snap = "C:\temp\termius-snap"
+Copy-Item -Recurse "$env:APPDATA\Termius\Local Storage" $snap
+Copy-Item -Recurse "$env:APPDATA\Termius\IndexedDB" $snap
+
+# 3. Extract keys:
+node .\extract_keys.js --data-dir $snap `
+    --logs-dir "$env:APPDATA\Termius\session-logs-v2" `
+    --out decrypted
+
+# 4. Decrypt logs:
+.\run_helper.ps1 decrypted\keys.json `
+    --logs-dir "$env:APPDATA\Termius\session-logs-v2" `
+    --out decrypted
+
+# 5. Clean up:
+Remove-Item Env:TERMIUS_LOCAL_KEY_B64
+Remove-Item -Recurse $snap
+```
+
+Or with multiple log directories:
 
 ```powershell
 .\run_helper.ps1 decrypted\keys.json `
   --logs-dir "C:\Users\<you>\AppData\Roaming\Termius\session-logs-v2" `
-  --logs-dir "C:\path\to\copied\Termius\session-logs-v2"
+  --logs-dir "C:\path\to\extra\session-logs-v2"
 ```
 
 Output: `decrypted\<uuid>.txt` per recoverable session, plus a trailing list of orphan `.log` files (encrypted with cloud-only keys, can't be recovered locally).
@@ -155,59 +186,40 @@ per-session secretKey (32 bytes, from session_log_data.secretKey)
 
 ## Files
 
-Top-level:
-
 | file                          | purpose |
 |---|---|
-| `dump_local_key.ps1`          | PowerShell — extract `localKey` from Windows Credential Manager |
+| `run_all.ps1`                 | Orchestrator — stop Termius, snapshot LevelDB, run extractor + libtermius helper |
+| `get_local_key.ps1`           | Capture-only wrapper around `dump_local_key.ps1` (emits bare base64 to stdout) |
+| `dump_local_key.ps1`          | Reads `localKey` from Windows Credential Manager |
+| `extract_keys.js`             | Node CLI — reads LevelDB snapshots, decrypts envelopes, writes `keys.json` |
 | `decrypt_via_libtermius.js`   | Node helper — `.log` → `.txt` via libtermius LogReader |
 | `run_helper.ps1`              | PowerShell launcher — runs the Node helper under Termius.exe (Electron 21) |
-
-Windows-native pipeline (`windows/`):
-
-| file                          | purpose |
-|---|---|
-| `windows/run_all.ps1`         | Orchestrator — stop Termius, snapshot LevelDB, run extractor + libtermius helper |
-| `windows/get_local_key.ps1`   | Capture-only wrapper around `dump_local_key.ps1` (emits bare base64 to stdout) |
-| `windows/extract_keys.js`     | Node CLI — replaces `decrypt_termius_logs.py` on Windows |
-| `windows/lib/leveldb_reader.js` | Pure-JS LevelDB scanner (SST + WAL, snappy decompress, comparator-agnostic) |
-| `windows/lib/v8_ssv.js`       | V8 structured-clone decoder (JS port of `inspect_v8.py`) |
-| `windows/lib/termius_crypto.js` | Secretbox envelope decrypt via `tweetnacl` |
-| `windows/lib/localstorage.js` | Chromium Local Storage credential walker |
-| `windows/lib/vault.js`        | Chromium IndexedDB session-record walker |
-| `windows/package.json`        | `tweetnacl` + `snappyjs` |
-
-macOS Python pipeline (alternative):
-
-| file                          | purpose |
-|---|---|
-| `decrypt_termius_logs.py`     | macOS Python CLI — emit `decrypted/keys.json` |
-| `termius_crypto.py`           | libsodium envelope helpers (secretbox + Local Storage / IndexedDB record envelope) |
-| `termius_localstorage.py`     | Chromium Local Storage walker (LevelDB) |
-| `termius_vault.py`            | Chromium IndexedDB walker (LevelDB, `idb_cmp1` comparator) |
-| `inspect_v8.py`               | V8 structured-clone decoder used by the IndexedDB walker |
-| `inspect_*.py`                | one-off discovery scripts kept for reproducibility |
-| `requirements.txt`            | `pynacl` + `plyvel-ci` |
-| `setup.sh`                    | venv bootstrap (uses `python3`) |
+| `lib/leveldb_reader.js`       | Pure-JS LevelDB scanner (SST + WAL, snappy decompress, comparator-agnostic) |
+| `lib/v8_ssv.js`               | V8 structured-clone decoder |
+| `lib/termius_crypto.js`       | Secretbox envelope decrypt via `tweetnacl` |
+| `lib/localstorage.js`         | Chromium Local Storage credential walker |
+| `lib/vault.js`                | Chromium IndexedDB session-record walker |
+| `package.json`                | `tweetnacl` + `snappyjs` |
 
 ## Layout expected in the working directory
 
 ```
 .
-├── Termius/                                # AppData copy from Windows
+├── %APPDATA%\Termius\                      # live Termius install (read-only)
 │   ├── IndexedDB/file__0.indexeddb.leveldb/
 │   ├── Local Storage/leveldb/
 │   ├── session-logs-v2/*.log
 │   └── ...
 ├── decrypted/                              # output (created on first run)
 │   ├── keys.json
-│   └── <uuid>.txt                          # after step 3
-├── app.asar.extracted/                     # optional, only if reversing further
-└── *.py *.js *.ps1 *.sh
+│   └── <uuid>.txt                          # after step 6
+└── *.js *.ps1
 ```
 
 ## Caveats
 
+- Termius is briefly stopped (~1-2 s for the snapshot copy) every run. If a session is mid-write, the WAL fragment may be truncated; the WAL parser tolerates this by skipping malformed batch entries.
+- The pure-JS LevelDB reader handles snappy-compressed blocks, prefix compression, internal-key suffix stripping (deletion tombstones are skipped), and the WAL's 32 KiB record framing. It does **not** merge by sequence number — duplicates across SST + WAL are de-duplicated downstream by primary key (`session_log_data.local_id` for sessions; credential name for Local Storage), with WAL entries winning over older SST entries.
+- **Recovery bonus:** the JS reader does not honor MANIFEST file-obsolescence or cross-file deletion tombstones, so it resurrects historical `session_log_data` records still living in older SST files even after Termius has nulled them post-upload. This finds extra `.log` files that a strictly merged view would treat as orphans.
 - Logs are written as a raw terminal stream — ANSI/VT100 escapes are preserved in the `.txt` output. Strip with `sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'` or similar if desired.
-- The Python tool runs on macOS (uses `python3`). The Node helper runs on Windows (needs the matching Electron 21 libtermius). The `localKey` lives in Windows Credential Manager and must be dumped there first.
 - libtermius is bundled inside Termius itself, not redistributable. This repo contains no Termius code.

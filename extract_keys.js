@@ -1,18 +1,16 @@
 #!/usr/bin/env node
 'use strict';
-// Windows-native equivalent of decrypt_termius_logs.py.
-//
 // Reads Termius's Local Storage + IndexedDB (LevelDB) directly from a
 // snapshot of %APPDATA%\Termius, decrypts envelopes with the 32-byte
 // localKey (passed via TERMIUS_LOCAL_KEY_B64 env var), decodes V8 SSV,
-// and writes decrypted/keys.json in the same schema decrypt_via_libtermius.js
-// already consumes.
+// and writes decrypted/keys.json in the schema decrypt_via_libtermius.js
+// consumes.
 //
 // Usage (env-var passes the master credential; argv never holds it):
 //   $env:TERMIUS_LOCAL_KEY_B64 = "<base64 from dump_local_key.ps1>"
 //   node extract_keys.js --data-dir <snapshot of Termius/> [--logs-dir <dir>] [--out decrypted]
 
-const SCRIPT_VERSION = '2026-05-13.v1';
+const SCRIPT_VERSION = '2026-05-14.v2';
 console.log(`extract_keys.js ${SCRIPT_VERSION}`);
 
 const fs = require('fs');

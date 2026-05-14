@@ -1,12 +1,8 @@
-.venv/
 Termius/
 decrypted/
 app.asar
 app.asar.extracted/
-__pycache__/
-*.pyc
-windows/node_modules/
-windows/node_modules.zip
+node_modules/
+node_modules.zip
 *.log
 *.txt
-!requirements.txt

@@ -21,7 +21,7 @@
 //   })
 // Construction is what kicks off the async stream; data arrives via callbacks.
 'use strict';
-const SCRIPT_VERSION = '2026-05-13.v6-MultiDir';
+const SCRIPT_VERSION = '2026-05-14.v7';
 console.log(`decrypt_via_libtermius.js ${SCRIPT_VERSION}`);
 const fs = require('fs');
 const path = require('path');
