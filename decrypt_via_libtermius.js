@@ -10,7 +10,7 @@
 //   $env:ELECTRON_RUN_AS_NODE = "1"
 //   & "$env:LOCALAPPDATA\Programs\Termius\Termius.exe" decrypt_via_libtermius.js decrypted\keys.json
 //
-// Optional flags: [--asar <app.asar.unpacked>] [--logs-dir <dir>] [--out <dir>] [--raw]
+// Optional flags: [--asar <app.asar.unpacked>] [--logs-dir <dir>] [--out <dir>]
 //
 // LogReader options shape (recovered from app.asar's ui-process bundle):
 //   new terminalOutput.LogReader({
@@ -21,7 +21,7 @@
 //   })
 // Construction is what kicks off the async stream; data arrives via callbacks.
 'use strict';
-const SCRIPT_VERSION = '2026-05-14.v8';
+const SCRIPT_VERSION = '2026-05-14.v9';
 console.log(`decrypt_via_libtermius.js ${SCRIPT_VERSION}`);
 const fs = require('fs');
 const path = require('path');
@@ -33,15 +33,13 @@ function expandEnv(p) {
 }
 
 function parseArgs(argv) {
-    const out = { positional: [], 'logs-dir': [], raw: false };
+    const out = { positional: [], 'logs-dir': [] };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--logs-dir') {
             out['logs-dir'].push(expandEnv(argv[++i]));
         } else if (a === '--asar' || a === '--out') {
             out[a.replace(/^--/, '')] = expandEnv(argv[++i]);
-        } else if (a === '--raw') {
-            out.raw = true;
         } else {
             out.positional.push(expandEnv(a));
         }
@@ -52,7 +50,7 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 const keysJsonPath = args.positional[0];
 if (!keysJsonPath) {
-    console.error('usage: node decrypt_via_libtermius.js <keys.json> [--asar <dir>] [--logs-dir <dir>] [--out <dir>] [--raw]');
+    console.error('usage: node decrypt_via_libtermius.js <keys.json> [--asar <dir>] [--logs-dir <dir>] [--out <dir>]');
     process.exit(2);
 }
 if (!fs.existsSync(keysJsonPath)) {
@@ -191,10 +189,9 @@ function decryptOne(filename, key) {
         process.stderr.write(`decrypting ${s.filename} (from ${path.dirname(inFile)}) ...\n`);
         try {
             const plaintext = await decryptOne(inFile, key);
-            const out = args.raw ? plaintext : Buffer.from(renderTerminalStream(plaintext), 'utf8');
-            fs.writeFileSync(outFile, out);
-            const mode = args.raw ? 'raw' : 'rendered';
-            console.log(`[ok] ${s.filename} -> ${outFile} (${out.length} bytes, ${mode})`);
+            const rendered = Buffer.from(renderTerminalStream(plaintext), 'utf8');
+            fs.writeFileSync(outFile, rendered);
+            console.log(`[ok] ${s.filename} -> ${outFile} (${rendered.length} bytes)`);
             ok++;
         } catch (e) {
             console.error(`[fail] ${s.filename}: ${e.message}`);
