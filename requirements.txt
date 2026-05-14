@@ -1,0 +1,2 @@
+pynacl>=1.5
+plyvel-ci>=1.5

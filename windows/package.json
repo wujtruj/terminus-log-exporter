@@ -1,0 +1,17 @@
+{
+  "name": "terminus-log-converter-windows",
+  "version": "2026-05-13.v1",
+  "private": true,
+  "description": "Windows-native Node.js extractor for Termius session-log keys.",
+  "main": "extract_keys.js",
+  "scripts": {
+    "extract": "node extract_keys.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "snappyjs": "^0.7.0",
+    "tweetnacl": "^1.0.3"
+  }
+}
