@@ -122,6 +122,7 @@ node .\extract_keys.js --data-dir $snap `
 .\run_helper.ps1 decrypted\keys.json `
     --logs-dir "$env:APPDATA\Termius\session-logs-v2" `
     --out decrypted
+# Add --keep-blank-lines to suppress the prompt-blank-line cleanup (see Caveats).
 
 # 5. Clean up:
 Remove-Item Env:TERMIUS_LOCAL_KEY_B64
@@ -222,4 +223,5 @@ per-session secretKey (32 bytes, from session_log_data.secretKey)
 - The pure-JS LevelDB reader handles snappy-compressed blocks, prefix compression, internal-key suffix stripping (deletion tombstones are skipped), and the WAL's 32 KiB record framing. It does **not** merge by sequence number — duplicates across SST + WAL are de-duplicated downstream by primary key (`session_log_data.local_id` for sessions; credential name for Local Storage), with WAL entries winning over older SST entries.
 - **Recovery bonus:** the JS reader does not honor MANIFEST file-obsolescence or cross-file deletion tombstones, so it resurrects historical `session_log_data` records still living in older SST files even after Termius has nulled them post-upload. This finds extra `.log` files that a strictly merged view would treat as orphans.
 - Logs are rendered through a minimal terminal emulator (`lib/terminal_render.js`) before being written to `.txt`, so command-line edits, history navigation, and shell autocomplete redraws collapse to their final displayed form (CR, BS, `ESC[K`, cursor-move CSI sequences applied; SGR colors and OSC title sequences stripped).
+- By default the renderer also strips spurious blank lines that appear immediately before a shell-prompt line. Some devices (e.g. FortiGate / FortiOS) emit an extra `\r\n` between a command's output and the next prompt, which surfaces as a blank line in the `.txt`. The cleanup only touches blanks that precede a prompt-shaped line (line starts with non-whitespace and contains `#`, `$`, `>`, or `%` followed by space); blanks inside command output are preserved. Pass `--keep-blank-lines` to `decrypt_via_libtermius.js` (or `.\run_helper.ps1`) to disable the cleanup and get the raw stream.
 - libtermius is bundled inside Termius itself, not redistributable. This repo contains no Termius code.
